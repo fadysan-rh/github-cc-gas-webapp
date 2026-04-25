@@ -96,7 +96,7 @@
           </CardContent>
           <CardActions sx={{ pt: 0, px: 2, pb: 1 }}>
             <Button size="small" startIcon={<span className="material-icons" style={{fontSize:16}}>open_in_new</span>} onClick={handleOpenIntent}>
-              投稿用URLを��く
+              投稿用URLを開く
             </Button>
             <Button size="small" onClick={() => onEdit(post)}>編集</Button>
             <Button size="small" color="error" onClick={() => onDelete(post.id)}>削除</Button>
@@ -172,7 +172,7 @@
                 onChange={(_, v) => { if (v) set('platform', v); }}
                 size="small"
               >
-                <ToggleButton value="X">𝕏 (X)</ToggleButton>
+                <ToggleButton value="X">X</ToggleButton>
                 <ToggleButton value="Threads">Threads</ToggleButton>
               </ToggleButtonGroup>
             </Box>
@@ -199,7 +199,7 @@
             />
 
             <FormControl size="small" fullWidth>
-              <InputLabel>���テータス</InputLabel>
+              <InputLabel>ステータス</InputLabel>
               <Select value={form.status} label="ステータス" onChange={e => set('status', e.target.value)}>
                 <MenuItem value="draft">下書き</MenuItem>
                 <MenuItem value="scheduled">予定</MenuItem>
