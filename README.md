@@ -1,12 +1,15 @@
 # GAS Web App Skeleton
 
-React + MUI のダークテーマ画面を GAS Web App として即起動できる雛形。
+React + MUI のライトテーマ画面を GAS Web App として即起動できる雛形。
 `clasp push && clasp deploy` まで通せば本番URLが手に入る状態にある。
 
 ## 構成図
 
 ```
 .
+├── .github/
+│   └── workflows/
+│       └── deploy.yml   ← main マージで自動デプロイ
 ├── .clasp.json
 ├── .claspignore
 ├── .gitignore
@@ -18,7 +21,70 @@ React + MUI のダークテーマ画面を GAS Web App として即起動でき�
     └── index.html
 ```
 
-## 必要なもの
+---
+
+## 環境とデプロイの仕組み
+
+### 2つの環境
+
+| | 開発環境（HEAD） | 本番環境 |
+|---|---|---|
+| **目的** | 動作確認・テスト | 実際にユーザーが使う |
+| **URL** | Apps Script エディタのプレビュー | 固定の Web App URL |
+| **更新方法** | `npm run push` | main ブランチへのマージ（自動） |
+| **壊れたら** | 気にせず直す | すぐ気づいて戻す |
+
+### コードが本番に届くまでの流れ
+
+```
+① 自分のPC でコードを書く
+        ↓
+② npm run push
+        ↓
+   GAS 開発プレビューで確認
+   （URLは変わらない、自分だけ見える）
+        ↓ 問題なければ
+③ GitHub に PR を出す
+        ↓
+④ PR を main にマージ
+        ↓
+   GitHub Actions が自動で起動 ★ここは何もしなくていい
+        ↓
+⑤ 本番 URL に自動で反映される
+```
+
+### 自動デプロイの中身（GitHub Actions がやること）
+
+main ブランチにマージされた瞬間、GitHub のサーバーが以下を自動実行する。
+手動操作は一切不要。
+
+```
+1. コードをチェックアウト
+2. npm ci（パッケージ導入）
+3. clasp の認証情報を注入（GitHub Secrets から）
+4. clasp push（コードを GAS に送る）
+5. clasp deploy（本番 URL を新バージョンに更新）
+```
+
+### デプロイが成功したか確認する方法
+
+1. GitHub リポジトリの **「Actions」タブ** を開く
+2. 一番上の実行結果が **緑のチェックマーク** → 成功
+3. **赤い × マーク** → 失敗（Slack 等に通知を飛ばす設定も可能）
+
+```
+https://github.com/fadysan-rh/github-cc-gas-webapp/actions
+```
+
+### 本番 URL
+
+```
+https://script.google.com/macros/s/AKfycbw_Cao5XL1eS8EJrCosA7w3-Z5fb0MVL0mWOgT7xdieqR_8P41sSOtgrNg5eNpHHzS_/exec
+```
+
+---
+
+## 必要なもの（初回セットアップのみ）
 
 - Google アカウント
 - Node.js 18 以上
@@ -83,7 +149,28 @@ echo 'export DEPLOYMENT_ID="ここにデプロイIDを貼り付け"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-### ⑧ ブラウザで動作確認
+### ⑧ GitHub Secrets に3つの値を登録する
+
+GitHub Actions が自動デプロイするために必要な情報を登録する。
+リポジトリの **「Settings」→「Secrets and variables」→「Actions」** を開き、
+以下の3つを「New repository secret」で追加する。
+
+| Secret 名 | 値の取得方法 |
+|---|---|
+| `CLASPRC_JSON` | ターミナルで `cat ~/.clasprc.json` の出力をまるごとコピー |
+| `SCRIPT_ID` | ② でコピーした scriptId |
+| `DEPLOYMENT_ID` | ⑥ でメモしたデプロイ ID |
+
+または以下のコマンドで一括登録できる（gh CLI が必要）:
+
+```bash
+cat ~/.clasprc.json | gh secret set CLASPRC_JSON --repo {GitHubユーザー名}/{リポジトリ名}
+echo -n "$DEPLOYMENT_ID" | gh secret set DEPLOYMENT_ID --repo {GitHubユーザー名}/{リポジトリ名}
+# SCRIPT_ID は .clasp.json の scriptId の値
+echo -n "{scriptIdの値}" | gh secret set SCRIPT_ID --repo {GitHubユーザー名}/{リポジトリ名}
+```
+
+### ⑨ ブラウザで動作確認
 
 ```bash
 npm run open
@@ -93,14 +180,37 @@ npm run open
 
 ---
 
-## 日々の運用
+## 日々の開発フロー
 
-| コマンド | 動作 |
-|---|---|
-| `npm run push` | ローカルの変更を GAS に同期する |
-| `npm run deploy` | push + 既存URLのまま本番を更新する |
-| `npm run open` | Web App URL をブラウザで開く |
-| `npm run pull` | GAS 上の変更をローカルに取り込む |
+### 通常の機能追加・修正
+
+```bash
+# 1. 作業ブランチを作る（ブランチ名は内容がわかるものにする）
+git checkout -b feat/〇〇機能
+
+# 2. コードを編集する
+#    （src/index.html や src/Code.gs を変更）
+
+# 3. 動作確認（開発プレビューに反映）
+npm run push
+
+# 4. 問題なければ GitHub にプッシュ
+git add src/index.html  # 変更したファイルを指定
+git commit -m "feat: 〇〇機能を追加"
+git push origin feat/〇〇機能
+
+# 5. GitHub で Pull Request を作成してマージ
+#    → 自動で本番デプロイが走る
+```
+
+### コマンドリファレンス
+
+| コマンド | タイミング | 動作 |
+|---|---|---|
+| `npm run push` | 開発中の確認 | ローカルの変更を GAS の開発プレビューに反映 |
+| `npm run deploy` | 緊急で手動デプロイしたいとき | push + 本番URL を即時更新 |
+| `npm run open` | 本番確認 | 本番 Web App URL をブラウザで開く |
+| `npm run pull` | GAS 側で直接編集した後 | GAS 上の変更をローカルに取り込む |
 
 ---
 
@@ -118,6 +228,10 @@ npm run open
 **`.clasprc.json` を絶対に Git に上げない**
 このファイルには Google OAuth トークンが入っている。
 `.gitignore` で除外済みだが `git add -A` 等の操作に注意する。
+
+**数ヶ月後に GitHub Actions が失敗し始めたら**
+`CLASPRC_JSON` に入っている認証トークンの有効期限が切れている。
+ローカルで `clasp login` を再実行し、`cat ~/.clasprc.json` の内容で Secret を上書きする。
 
 ---
 
