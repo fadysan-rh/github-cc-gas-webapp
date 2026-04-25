@@ -1,0 +1,14 @@
+{
+  "name": "gas-web-app-skeleton",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "push": "clasp push",
+    "pull": "clasp pull",
+    "deploy": "clasp push && clasp deploy -i $DEPLOYMENT_ID -d \"$(date +%Y%m%d-%H%M)\"",
+    "open": "clasp open-web-app"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2"
+  }
+}
