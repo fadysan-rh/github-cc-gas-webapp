@@ -301,6 +301,14 @@
               <Typography variant="h6" fontWeight={700} sx={{ flexGrow: 1 }}>
                 SNS Post Manager
               </Typography>
+              <Button
+                color="inherit"
+                startIcon={<span className="material-icons">add</span>}
+                onClick={() => { setEditing(null); setDialogOpen(true); }}
+                sx={{ mr: 1 }}
+              >
+                新規投稿
+              </Button>
               <Tooltip title="Google Sheets を開く">
                 <IconButton color="inherit" onClick={openSheet} size="small">
                   <span className="material-icons">table_chart</span>
