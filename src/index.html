@@ -3,16 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GAS Web App Skeleton</title>
-  <!-- MUI fonts -->
+  <title>SNS Post Manager</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
-  <!-- React 18 -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- MUI (UMD build) -->
   <script crossorigin src="https://unpkg.com/@mui/material@5/umd/material-ui.production.min.js"></script>
-  <!-- Babel (standalone for JSX in browser) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,15 +20,16 @@
 
   <script type="text/babel">
     const {
-      Container,
-      Typography,
-      Button,
-      Snackbar,
-      Alert,
-      ThemeProvider,
-      createTheme,
-      CssBaseline,
-      Box,
+      AppBar, Toolbar, Typography, IconButton, Tooltip,
+      Tabs, Tab, Box, Container,
+      Card, CardContent, CardActions,
+      Button, Fab, Chip,
+      Dialog, DialogTitle, DialogContent, DialogActions,
+      TextField, Select, MenuItem, FormControl, InputLabel,
+      ToggleButton, ToggleButtonGroup,
+      Snackbar, Alert,
+      CircularProgress,
+      ThemeProvider, createTheme, CssBaseline,
     } = MaterialUI;
 
     const lightTheme = createTheme({
@@ -43,95 +40,345 @@
       },
     });
 
-    function App() {
-      const [snackOpen, setSnackOpen] = React.useState(false);
-      const [snackMsg, setSnackMsg]   = React.useState('');
-      const [loading, setLoading]     = React.useState(false);
+    const STATUS_LABELS = { draft: '下書き', scheduled: '予定', posted: '投稿済み' };
+    const STATUS_COLORS = { draft: 'default', scheduled: 'primary', posted: 'success' };
+    const PLATFORM_LIMITS = { X: 280, Threads: 500 };
 
-      function handleTest() {
-        setLoading(true);
-        google.script.run
-          .withSuccessHandler((result) => {
-            setSnackMsg(result);
-            setSnackOpen(true);
-            setLoading(false);
-          })
-          .withFailureHandler((err) => {
-            setSnackMsg('Error: ' + err.message);
-            setSnackOpen(true);
-            setLoading(false);
-          })
-          .hello();
+    // ---- GAS bridge ----
+    function gasCall(fn, ...args) {
+      return new Promise((resolve, reject) => {
+        let runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+        runner[fn](...args);
+      });
+    }
+
+    // ---- PostCard ----
+    function PostCard({ post, onEdit, onDelete, onPosted }) {
+      const [confirmOpen, setConfirmOpen] = React.useState(false);
+
+      function handleOpenIntent() {
+        const text = encodeURIComponent(post.body);
+        const url = post.platform === 'X'
+          ? `https://twitter.com/intent/tweet?text=${text}`
+          : `https://www.threads.net/intent/post?text=${text}`;
+        window.open(url, '_blank');
+        setConfirmOpen(true);
       }
+
+      return (
+        <Card variant="outlined" sx={{ mb: 2 }}>
+          <CardContent sx={{ pb: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Chip label={post.platform} size="small" color="primary" variant="outlined" />
+              <Chip
+                label={STATUS_LABELS[post.status] || post.status}
+                size="small"
+                color={STATUS_COLORS[post.status] || 'default'}
+              />
+              {post.scheduledAt && (
+                <Typography variant="caption" color="text.secondary">
+                  {new Date(post.scheduledAt).toLocaleString('ja-JP')}
+                </Typography>
+              )}
+            </Box>
+            {post.title && (
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                {post.title}
+              </Typography>
+            )}
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 80, overflow: 'hidden' }}
+            >
+              {post.body}
+            </Typography>
+          </CardContent>
+          <CardActions sx={{ pt: 0, px: 2, pb: 1 }}>
+            <Button size="small" startIcon={<span className="material-icons" style={{fontSize:16}}>open_in_new</span>} onClick={handleOpenIntent}>
+              投稿用URLを開く
+            </Button>
+            <Button size="small" onClick={() => onEdit(post)}>編集</Button>
+            <Button size="small" color="error" onClick={() => onDelete(post.id)}>削除</Button>
+          </CardActions>
+
+          <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="xs" fullWidth>
+            <DialogTitle>投稿しましたか？</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2">
+                投稿が完了した場合、ステータスを「投稿済み」に更新します。
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmOpen(false)}>まだ</Button>
+              <Button variant="contained" onClick={() => { onPosted(post.id); setConfirmOpen(false); }}>
+                投稿済みにする
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </Card>
+      );
+    }
+
+    // ---- PostFormDialog ----
+    function PostFormDialog({ open, post, onClose, onSave }) {
+      const isEdit = Boolean(post && post.id);
+      const [form, setForm] = React.useState({
+        title: '', body: '', platform: 'X', scheduledAt: '', status: 'draft',
+      });
+
+      React.useEffect(() => {
+        if (open) {
+          setForm(post && post.id ? {
+            title:       post.title       || '',
+            body:        post.body        || '',
+            platform:    post.platform    || 'X',
+            scheduledAt: post.scheduledAt ? post.scheduledAt.slice(0, 16) : '',
+            status:      post.status      || 'draft',
+          } : { title: '', body: '', platform: 'X', scheduledAt: '', status: 'draft' });
+        }
+      }, [open, post]);
+
+      const limit = PLATFORM_LIMITS[form.platform] || 280;
+      const bodyLen = form.body.length;
+      const over = bodyLen > limit;
+
+      function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
+
+      function handleSave() {
+        if (!form.body.trim()) return;
+        onSave({ ...form, scheduledAt: form.scheduledAt ? new Date(form.scheduledAt).toISOString() : '' });
+      }
+
+      return (
+        <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+          <DialogTitle>{isEdit ? '投稿を編集' : '新規投稿'}</DialogTitle>
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+            <TextField
+              label="タイトル（任意・管理用）"
+              value={form.title}
+              onChange={e => set('title', e.target.value)}
+              size="small"
+              fullWidth
+            />
+
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                媒体
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                value={form.platform}
+                onChange={(_, v) => { if (v) set('platform', v); }}
+                size="small"
+              >
+                <ToggleButton value="X">X</ToggleButton>
+                <ToggleButton value="Threads">Threads</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+
+            <TextField
+              label={`本文 (${bodyLen} / ${limit}文字)`}
+              value={form.body}
+              onChange={e => set('body', e.target.value)}
+              multiline
+              rows={6}
+              fullWidth
+              error={over}
+              helperText={over ? `${form.platform} の文字数上限 ${limit} 字を超えています` : ''}
+            />
+
+            <TextField
+              label="予定日時"
+              type="datetime-local"
+              value={form.scheduledAt}
+              onChange={e => set('scheduledAt', e.target.value)}
+              size="small"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+
+            <FormControl size="small" fullWidth>
+              <InputLabel>ステータス</InputLabel>
+              <Select value={form.status} label="ステータス" onChange={e => set('status', e.target.value)}>
+                <MenuItem value="draft">下書き</MenuItem>
+                <MenuItem value="scheduled">予定</MenuItem>
+                <MenuItem value="posted">投稿済み</MenuItem>
+              </Select>
+            </FormControl>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={onClose}>キャンセル</Button>
+            <Button variant="contained" onClick={handleSave} disabled={!form.body.trim() || over}>
+              保存
+            </Button>
+          </DialogActions>
+        </Dialog>
+      );
+    }
+
+    // ---- App ----
+    function App() {
+      const [posts, setPosts]           = React.useState([]);
+      const [filter, setFilter]         = React.useState('all');
+      const [editingPost, setEditing]   = React.useState(null);
+      const [dialogOpen, setDialogOpen] = React.useState(false);
+      const [loading, setLoading]       = React.useState(true);
+      const [snack, setSnack]           = React.useState({ open: false, msg: '', sev: 'success' });
+
+      function toast(msg, sev = 'success') {
+        setSnack({ open: true, msg, sev });
+      }
+
+      async function loadPosts() {
+        setLoading(true);
+        try {
+          const data = await gasCall('listPosts', filter === 'all' ? null : filter);
+          setPosts(data || []);
+        } catch (e) {
+          toast('読み込みに失敗しました: ' + e.message, 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      React.useEffect(() => { loadPosts(); }, [filter]);
+
+      async function handleSave(form) {
+        setDialogOpen(false);
+        try {
+          if (editingPost && editingPost.id) {
+            const updated = await gasCall('updatePost', editingPost.id, form);
+            setPosts(ps => ps.map(p => p.id === updated.id ? updated : p));
+            toast('更新しました');
+          } else {
+            const created = await gasCall('createPost', form);
+            setPosts(ps => [created, ...ps]);
+            toast('投稿を作成しました');
+          }
+        } catch (e) {
+          toast('保存に失敗しました: ' + e.message, 'error');
+        }
+      }
+
+      async function handleDelete(id) {
+        try {
+          await gasCall('deletePost', id);
+          setPosts(ps => ps.filter(p => p.id !== id));
+          toast('削除しました');
+        } catch (e) {
+          toast('削除に失敗しました: ' + e.message, 'error');
+        }
+      }
+
+      async function handlePosted(id) {
+        try {
+          const updated = await gasCall('updatePost', id, { status: 'posted' });
+          setPosts(ps => ps.map(p => p.id === updated.id ? updated : p));
+          toast('投稿済みにしました', 'info');
+        } catch (e) {
+          toast('更新に失敗しました: ' + e.message, 'error');
+        }
+      }
+
+      async function openSheet() {
+        try {
+          const url = await gasCall('getSheetUrl');
+          window.open(url, '_blank');
+        } catch (e) {
+          toast('シートURLの取得に失敗しました', 'error');
+        }
+      }
+
+      const filtered = filter === 'all' ? posts : posts.filter(p => p.status === filter);
 
       return (
         <ThemeProvider theme={lightTheme}>
           <CssBaseline />
-          <Container maxWidth="sm">
-            <Box
-              sx={{
-                minHeight: '100vh',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-              }}
-            >
-              <Box
-                sx={{
-                  bgcolor: 'background.paper',
-                  borderRadius: 3,
-                  boxShadow: 2,
-                  px: 6,
-                  py: 5,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 3,
-                  width: '100%',
-                }}
-              >
-                <Typography variant="h4" component="h1" fontWeight={700} textAlign="center" color="text.primary">
-                  GAS Web App is alive
-                </Typography>
-                <Typography variant="body1" color="text.secondary" textAlign="center">
-                  google.script.run の疎通を確認してください
-                </Typography>
-                <Button
-                  variant="contained"
-                  size="large"
-                  onClick={handleTest}
-                  disabled={loading}
-                  sx={{ minWidth: 240 }}
-                >
-                  {loading ? 'Calling...' : 'Test google.script.run'}
-                </Button>
-              </Box>
-            </Box>
 
-            <Snackbar
-              open={snackOpen}
-              autoHideDuration={4000}
-              onClose={() => setSnackOpen(false)}
-              anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-            >
-              <Alert
-                onClose={() => setSnackOpen(false)}
-                severity="success"
-                variant="filled"
-                sx={{ width: '100%' }}
+          <AppBar position="sticky" elevation={1}>
+            <Toolbar>
+              <Typography variant="h6" fontWeight={700} sx={{ flexGrow: 1 }}>
+                SNS Post Manager
+              </Typography>
+              <Button
+                color="inherit"
+                startIcon={<span className="material-icons">add</span>}
+                onClick={() => { setEditing(null); setDialogOpen(true); }}
+                sx={{ mr: 1 }}
               >
-                {snackMsg}
-              </Alert>
-            </Snackbar>
+                新規投稿
+              </Button>
+              <Tooltip title="Google Sheets を開く">
+                <IconButton color="inherit" onClick={openSheet} size="small">
+                  <span className="material-icons">table_chart</span>
+                </IconButton>
+              </Tooltip>
+            </Toolbar>
+          </AppBar>
+
+          <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+            <Tabs value={filter} onChange={(_, v) => setFilter(v)} variant="scrollable" scrollButtons="auto">
+              <Tab label="すべて" value="all" />
+              <Tab label="下書き" value="draft" />
+              <Tab label="予定" value="scheduled" />
+              <Tab label="投稿済み" value="posted" />
+            </Tabs>
+          </Box>
+
+          <Container maxWidth="sm" sx={{ py: 3 }}>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', pt: 6 }}>
+                <CircularProgress />
+              </Box>
+            ) : filtered.length === 0 ? (
+              <Box sx={{ textAlign: 'center', pt: 8, color: 'text.secondary' }}>
+                <span className="material-icons" style={{ fontSize: 48, opacity: 0.3 }}>inbox</span>
+                <Typography variant="body1" sx={{ mt: 1 }}>投稿がありません</Typography>
+              </Box>
+            ) : (
+              filtered.map(post => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  onEdit={p => { setEditing(p); setDialogOpen(true); }}
+                  onDelete={handleDelete}
+                  onPosted={handlePosted}
+                />
+              ))
+            )}
           </Container>
+
+          <Fab
+            color="primary"
+            sx={{ position: 'fixed', bottom: 24, right: 24 }}
+            onClick={() => { setEditing(null); setDialogOpen(true); }}
+          >
+            <span className="material-icons">add</span>
+          </Fab>
+
+          <PostFormDialog
+            open={dialogOpen}
+            post={editingPost}
+            onClose={() => setDialogOpen(false)}
+            onSave={handleSave}
+          />
+
+          <Snackbar
+            open={snack.open}
+            autoHideDuration={3500}
+            onClose={() => setSnack(s => ({ ...s, open: false }))}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          >
+            <Alert severity={snack.sev} variant="filled" onClose={() => setSnack(s => ({ ...s, open: false }))}>
+              {snack.msg}
+            </Alert>
+          </Snackbar>
         </ThemeProvider>
       );
     }
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
