@@ -39,10 +39,11 @@ React + MUI のライトテーマ画面を GAS Web App として即起動でき�
 ```
 ① 自分のPC でコードを書く
         ↓
-② npm run push
+② npm run push（コードを GAS に送る）
         ↓
-   GAS 開発プレビューで確認
-   （URLは変わらない、自分だけ見える）
+   Apps Script エディタ →「デプロイ」→「テスト デプロイ」
+   でプレビュー URL を取得して確認
+   （毎回 URL が変わる / push のたびに最新が反映される）
         ↓ 問題なければ
 ③ GitHub に PR を出す
         ↓
@@ -78,8 +79,10 @@ https://github.com/fadysan-rh/github-cc-gas-webapp/actions
 
 ### 本番 URL
 
+初回デプロイ（セットアップ⑥）後に取得した URL を以下に記録しておく。
+
 ```
-https://script.google.com/macros/s/AKfycbw_Cao5XL1eS8EJrCosA7w3-Z5fb0MVL0mWOgT7xdieqR_8P41sSOtgrNg5eNpHHzS_/exec
+https://script.google.com/macros/s/{WEB_APP_URL}/exec
 ```
 
 ---
@@ -195,12 +198,16 @@ git checkout -b feat/〇〇機能
 npm run push
 
 # 4. 問題なければ GitHub にプッシュ
-git add src/index.html  # 変更したファイルを指定
+git add src/          # src/ 以下をまとめて追加（ファイルを絞る場合は個別指定）
 git commit -m "feat: 〇〇機能を追加"
 git push origin feat/〇〇機能
 
 # 5. GitHub で Pull Request を作成してマージ
 #    → 自動で本番デプロイが走る
+
+# 6. マージ後: ローカルのブランチを削除
+git checkout main && git pull origin main
+git branch -d feat/〇〇機能
 ```
 
 ### コマンドリファレンス
